@@ -195,6 +195,8 @@ Two workflows in [`.github/workflows/`](../../../.github/workflows) run automati
 
 Run results are on the [Actions tab](https://github.com/isakshay007/MLOps/actions).
 
+> **Note:** this fork also contains the course's own example workflows (CI/CD Pipeline, Lab 2 model calibration, Lab 3 GCS training, and the original Lab1 tests). They need the instructor's GCP credentials or write access, so they are disabled in this fork. Only the two Lab1 Banking workflows above are active.
+
 ---
 
 ## Quick start
