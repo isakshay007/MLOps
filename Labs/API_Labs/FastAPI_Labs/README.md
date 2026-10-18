@@ -2,9 +2,9 @@
 
 [![FastAPI Lab Wine - Train & Test](https://github.com/isakshay007/MLOps/actions/workflows/fastapi_lab_wine_tests.yml/badge.svg)](https://github.com/isakshay007/MLOps/actions/workflows/fastapi_lab_wine_tests.yml)
 
-Based on the [FastAPI Lab from raminmohammadi/MLOps](https://github.com/raminmohammadi/MLOps/tree/main/Labs/API_Labs/FastAPI_Labs) ([video](https://www.youtube.com/watch?v=KReburHqRIQ&list=PLcS4TrUUc53LeKBIyXAaERFKBJ3dvc9GZ&index=4), [blog](https://www.mlwithramin.com/blog/fastapi-lab1)).
+Based on the [FastAPI Lab from raminmohammadi/MLOps](https://github.com/raminmohammadi/MLOps/tree/main/Labs/API_Labs/FastAPI_Labs).
 
-The original lab trains a Decision Tree on the Iris dataset and serves it with FastAPI and uvicorn. This version keeps the same structure (`data.py`, `train.py`, `predict.py`, `main.py`) but serves a **Random Forest trained on the Wine dataset**. It also fixes the gaps in the original: unused test set, bare-number output, no input checks and no tests.
+This lab trains a **Random Forest** on the scikit-learn **Wine dataset** to identify which of 3 cultivars a wine comes from, using 13 chemical measurements. It then serves the model as a REST API with FastAPI and uvicorn. The API returns the predicted cultivar with a confidence score, accepts single or batch requests, validates every input, and reports the model's test metrics.
 
 ---
 
@@ -23,7 +23,6 @@ The original lab trains a Decision Tree on the Iris dataset and serves it with F
 | **File paths** | `../model/...` only works when run from `src/` | Paths built from the file's own location, so the lab runs from any folder |
 | **Tests** | None | **13 pytest tests** using FastAPI's `TestClient` (one real sample per cultivar, batch, 4 validation cases, metrics) |
 | **CI** | None for this lab | GitHub Actions: trains the model and runs the tests on Python 3.10–3.12 |
-| **README** | Run command says `uvicorn app:main` (wrong) | Fixed to `uvicorn main:app` |
 
 ---
 
