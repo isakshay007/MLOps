@@ -1,78 +1,116 @@
 from fastapi import FastAPI, status, HTTPException
-from pydantic import BaseModel
-from predict import predict_data
+from pydantic import BaseModel, Field
+
+from data import CLASS_NAMES, FEATURE_NAMES
+from predict import load_metrics, load_model, predict_data, MODEL_PATH
 
 
-app = FastAPI()
+app = FastAPI(
+    title="Wine Cultivar Classifier API",
+    description="Predicts which of 3 cultivars a wine comes from, using 13 chemical measurements "
+                "and a Random Forest trained on the scikit-learn Wine dataset.",
+    version="1.0.0",
+)
 
-class IrisData(BaseModel):
+# A real sample from the dataset (cultivar_1), used as the example in /docs
+EXAMPLE_WINE = {
+    "alcohol": 14.23, "malic_acid": 1.71, "ash": 2.43, "alcalinity_of_ash": 15.6,
+    "magnesium": 127.0, "total_phenols": 2.8, "flavanoids": 3.06,
+    "nonflavanoid_phenols": 0.28, "proanthocyanins": 2.29, "color_intensity": 5.64,
+    "hue": 1.04, "od280_od315_of_diluted_wines": 3.92, "proline": 1065.0,
+}
+
+
+class WineData(BaseModel):
     """
-    Pydantic BaseModel representing iris flower measurements.
+    Pydantic BaseModel representing the 13 chemical measurements of a wine sample.
 
-    Attributes:
-        petal_length (float): The length of the iris flower's petal in centimeters.
-        sepal_length (float): The length of the iris flower's sepal in centimeters.
-        petal_width (float): The width of the iris flower's petal in centimeters.
-        sepal_width (float): The width of the iris flower's sepal in centimeters.
+    Every value must be positive. Upper limits are about 1.5x the largest value in the
+    dataset, so typos like 1400 instead of 14.0 are rejected with a 422 error.
     """
-    petal_length: float
-    sepal_length: float
-    petal_width: float
-    sepal_width: float
+    alcohol: float = Field(..., gt=0, le=20, description="Alcohol (% vol)")
+    malic_acid: float = Field(..., gt=0, le=10, description="Malic acid (g/L)")
+    ash: float = Field(..., gt=0, le=5, description="Ash (g/L)")
+    alcalinity_of_ash: float = Field(..., gt=0, le=45, description="Alcalinity of ash")
+    magnesium: float = Field(..., gt=0, le=250, description="Magnesium (mg/L)")
+    total_phenols: float = Field(..., gt=0, le=6, description="Total phenols")
+    flavanoids: float = Field(..., gt=0, le=8, description="Flavanoids")
+    nonflavanoid_phenols: float = Field(..., gt=0, le=1, description="Nonflavanoid phenols")
+    proanthocyanins: float = Field(..., gt=0, le=6, description="Proanthocyanins")
+    color_intensity: float = Field(..., gt=0, le=20, description="Color intensity")
+    hue: float = Field(..., gt=0, le=3, description="Hue")
+    od280_od315_of_diluted_wines: float = Field(..., gt=0, le=6, description="OD280/OD315 of diluted wines")
+    proline: float = Field(..., gt=0, le=2500, description="Proline (mg/L)")
 
-class IrisResponse(BaseModel):
-    response:int
+    model_config = {"json_schema_extra": {"examples": [EXAMPLE_WINE]}}
+
+    def to_row(self):
+        """Return the features in the same column order the model was trained on."""
+        return [getattr(self, name) for name in FEATURE_NAMES]
 
 
+class WineBatch(BaseModel):
+    samples: list[WineData] = Field(..., min_length=1, max_length=100)
 
-"""Modern web apps use a technique named routing. This helps the user remember the URLs. 
-For instance, instead of having /booking.php they see /booking/. Instead of /account.asp?id=1234/ 
-they’d see /account/1234/."""
+
+class WineResponse(BaseModel):
+    class_id: int
+    class_name: str
+    confidence: float
+    probabilities: dict[str, float]
+
+
+class WineBatchResponse(BaseModel):
+    count: int
+    predictions: list[WineResponse]
+
+
+def run_prediction(rows):
+    """Run the model and turn failures into clear HTTP errors."""
+    try:
+        return predict_data(rows)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
 
 @app.get("/", status_code=status.HTTP_200_OK)
 async def health_ping():
-    """Concurrent (multiple tasks can run simultaneously)"""
-    return {"status": "healthy"}
+    """Health check that also reports whether the trained model file is present."""
+    return {"status": "healthy", "model_loaded": MODEL_PATH.exists()}
 
-@app.post("/predict", response_model=IrisResponse)
-async def predict_iris(iris_features: IrisData):
+
+@app.get("/model-info")
+async def model_info():
     """
-    Predict the iris flower species based on provided features.
-    This endpoint accepts iris flower measurements and returns the predicted species class.
-    Args:
-        iris_features (IrisData): An IrisData object containing:
-            - sepal_length (float): Length of the sepal in cm
-            - sepal_width (float): Width of the sepal in cm
-            - petal_length (float): Length of the petal in cm
-            - petal_width (float): Width of the petal in cm
-    Returns:
-        IrisResponse: A response object containing:
-            - response (int): The predicted iris species class (0, 1, or 2)
-    Raises:
-        HTTPException: Returns a 500 status code with error details if prediction fails.
-    Example:
-        POST /predict
-        {
-            "sepal_length": 5.1,
-            "sepal_width": 3.5,
-            "petal_length": 1.4,
-            "petal_width": 0.2
-        }
-        Response:
-        {
-            "response": 0
-        }
+    Describe the deployed model: type, hyperparameters, expected features, classes,
+    and the accuracy / F1 / confusion matrix measured on the held-out test set.
     """
     try:
-        features = [[iris_features.sepal_length, iris_features.sepal_width,
-                    iris_features.petal_length, iris_features.petal_width]]
+        model = load_model()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    return {
+        "model_type": type(model).__name__,
+        "features": FEATURE_NAMES,
+        "classes": CLASS_NAMES,
+        "metrics": load_metrics(),
+    }
 
-        prediction = predict_data(features)
-        return IrisResponse(response=int(prediction[0]))
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
+
+@app.post("/predict", response_model=WineResponse)
+async def predict_wine(wine: WineData):
+    """
+    Predict the cultivar of one wine sample.
+    Returns the predicted class id and name, the model's confidence,
+    and the probability of each of the 3 cultivars.
+    """
+    return run_prediction([wine.to_row()])[0]
 
 
-    
+@app.post("/predict/batch", response_model=WineBatchResponse)
+async def predict_wine_batch(batch: WineBatch):
+    """Predict the cultivar of 1 to 100 wine samples in a single request."""
+    predictions = run_prediction([wine.to_row() for wine in batch.samples])
+    return {"count": len(predictions), "predictions": predictions}

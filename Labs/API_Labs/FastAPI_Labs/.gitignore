@@ -1,0 +1,10 @@
+# Virtual environment
+fastapi_lab_env/
+
+# Python caches and test output
+__pycache__/
+.pytest_cache/
+pytest-report.xml
+
+# The repo root ignores *.json; keep the saved test metrics so they show on GitHub
+!model/metrics.json

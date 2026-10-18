@@ -1,0 +1,56 @@
+name: FastAPI Lab Wine - Train & Test
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Labs/API_Labs/FastAPI_Labs/**'
+      - '.github/workflows/fastapi_lab_wine_tests.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Labs/API_Labs/FastAPI_Labs/**'
+      - '.github/workflows/fastapi_lab_wine_tests.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    defaults:
+      run:
+        working-directory: Labs/API_Labs/FastAPI_Labs
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v7
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: pip
+        cache-dependency-path: Labs/API_Labs/FastAPI_Labs/requirements.txt
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Train model and save metrics
+      run: python src/train.py
+
+    - name: Run API tests
+      run: pytest -v tests --junitxml=pytest-report.xml
+
+    - name: Upload metrics and test report
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: fastapi-wine-py${{ matrix.python-version }}
+        path: |
+          Labs/API_Labs/FastAPI_Labs/model/metrics.json
+          Labs/API_Labs/FastAPI_Labs/pytest-report.xml

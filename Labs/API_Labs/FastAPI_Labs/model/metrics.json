@@ -1,0 +1,84 @@
+{
+  "model": "RandomForestClassifier",
+  "params": {
+    "n_estimators": 200,
+    "max_depth": 5
+  },
+  "test_size": 54,
+  "accuracy": 1.0,
+  "f1_macro": 1.0,
+  "cv5_accuracy_mean": 0.9753,
+  "cv5_accuracy_std": 0.0332,
+  "confusion_matrix": [
+    [
+      18,
+      0,
+      0
+    ],
+    [
+      0,
+      21,
+      0
+    ],
+    [
+      0,
+      0,
+      15
+    ]
+  ],
+  "per_class": {
+    "cultivar_1": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 18.0
+    },
+    "cultivar_2": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 21.0
+    },
+    "cultivar_3": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 15.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 54.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 54.0
+    }
+  },
+  "top_features": [
+    {
+      "feature": "color_intensity",
+      "importance": 0.1713
+    },
+    {
+      "feature": "flavanoids",
+      "importance": 0.1625
+    },
+    {
+      "feature": "proline",
+      "importance": 0.1466
+    },
+    {
+      "feature": "od280_od315_of_diluted_wines",
+      "importance": 0.1128
+    },
+    {
+      "feature": "alcohol",
+      "importance": 0.1024
+    }
+  ]
+}
