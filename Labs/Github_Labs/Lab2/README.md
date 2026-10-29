@@ -21,6 +21,7 @@ This lab uses GitHub Actions to retrain a model automatically. On every change t
 | **Tests** | None (empty `test/` folder) | **16 pytest tests** for the data, model, metrics, quality gate and registry |
 | **Workflow** | Two workflows (on push and daily). They commit as the course author, have no write permission, and the daily one has broken paths | One workflow: tests on Python 3.10–3.12, then train → evaluate → gate → commit as `github-actions[bot]`. Runs on lab changes, pull requests (no commit) and manual runs |
 | **Code** | Scripts must run from the repo root; files written to the working directory and moved by the workflow | Paths built from each file's location, so the scripts run from any folder and write straight to `models/` and `metrics/` |
+| **Leftovers** | Broken scratch notebook (`src/test.ipynb`, Reuters data) and copies of the workflows in `workflows/` | Removed; the single workflow lives in `.github/workflows/` |
 
 ---
 
@@ -37,7 +38,6 @@ Lab2/
 ├── test/                  # 16 pytest tests (new)
 ├── models/                # Versioned models + registry.json (written by the workflow)
 ├── metrics/               # Metrics of each version (written by the workflow)
-├── workflows/             # The course's original workflow files, kept for reference
 ├── requirements.txt       # Pinned: scikit-learn, mlflow, pytest
 └── README.md
 ```
