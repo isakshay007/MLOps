@@ -2,7 +2,7 @@
 
 [![Github Lab2 - Breast Cancer Retrain, Gate & Version](https://github.com/isakshay007/MLOps/actions/workflows/github_lab2_breast_cancer_retrain.yml/badge.svg)](https://github.com/isakshay007/MLOps/actions/workflows/github_lab2_breast_cancer_retrain.yml)
 
-Based on [Github Lab 2 from raminmohammadi/MLOps](https://github.com/raminmohammadi/MLOps/tree/main/Labs/Github_Labs/Lab2) ([tutorial video](https://youtu.be/cj5sXIMZUjQ)).
+Based on [Github Lab 2 from raminmohammadi/MLOps](https://github.com/raminmohammadi/MLOps/tree/main/Labs/Github_Labs/Lab2).
 
 This lab uses GitHub Actions to retrain a model automatically. On every change to the lab it runs the tests, trains a **Gradient Boosting** classifier on the **Breast Cancer Wisconsin** dataset to tell malignant tumours from benign ones, and evaluates it on a held-out test set. It then runs a **quality gate**. Only a model that passes the gate is given a timestamped version, recorded in a **model registry**, and committed back to the repository.
 
