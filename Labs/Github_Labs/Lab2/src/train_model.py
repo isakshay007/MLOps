@@ -1,84 +1,83 @@
-# from sklearn.datasets import fetch_rcv1
-import mlflow, datetime, os, pickle, random
-# import sklearn
-from joblib import dump
-from sklearn.datasets import make_classification
-from sklearn.metrics import accuracy_score, f1_score
-import sys
-from sklearn.ensemble import RandomForestClassifier
 import argparse
+import datetime
+from pathlib import Path
 
-sys.path.insert(0, os.path.abspath('..'))
+import joblib
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import cross_val_score
+
+from data import DATASET_NAME, RANDOM_STATE, load_data, split_data
+
+# Paths are relative to this file, so the script works from any working directory
+LAB_DIR = Path(__file__).resolve().parent.parent
+MODELS_DIR = LAB_DIR / "models"
+MLRUNS_DIR = LAB_DIR / "mlruns"
+
+MODEL_PARAMS = {
+    "n_estimators": 200,
+    "learning_rate": 0.05,
+    "max_depth": 3,
+    "subsample": 0.8,
+    "random_state": RANDOM_STATE,
+}
 
 
-if __name__ == '__main__':
+def model_path(version, models_dir=MODELS_DIR):
+    """Return the file path of a model version, e.g. models/model_20261029120000_gb_model.joblib."""
+    return Path(models_dir) / f"model_{version}_gb_model.joblib"
 
+
+def fit_model(X_train, y_train):
+    """
+    Train a Gradient Boosting classifier.
+    Args:
+        X_train (numpy.ndarray): Training features.
+        y_train (numpy.ndarray): Training target values.
+    Returns:
+        GradientBoostingClassifier: The fitted model.
+    """
+    model = GradientBoostingClassifier(**MODEL_PARAMS)
+    model.fit(X_train, y_train)
+    return model
+
+
+def save_model(model, version, models_dir=MODELS_DIR):
+    """Save the model under its version name and return the path."""
+    path = model_path(version, models_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, path)
+    return path
+
+
+def log_to_mlflow(version, n_train, cv_scores):
+    """Log the training run (params and 5-fold CV ROC-AUC) to the local MLflow store in mlruns/."""
+    import mlflow
+
+    mlflow.set_tracking_uri(MLRUNS_DIR.as_uri())
+    mlflow.set_experiment("github_lab2_breast_cancer")
+    with mlflow.start_run(run_name=f"gb_{version}"):
+        mlflow.log_params({**MODEL_PARAMS, "dataset": DATASET_NAME, "train_rows": n_train})
+        mlflow.log_metrics({"cv5_roc_auc_mean": cv_scores.mean(), "cv5_roc_auc_std": cv_scores.std()})
+
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--timestamp", type=str, required=True, help="Timestamp from GitHub Actions")
+    parser.add_argument("--timestamp", type=str,
+                        default=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S"),
+                        help="Model version, passed in by GitHub Actions (defaults to the current UTC time)")
+    parser.add_argument("--no-mlflow", action="store_true", help="Skip MLflow logging")
     args = parser.parse_args()
-    
-    # Access the timestamp
-    timestamp = args.timestamp
-    
-    # Use the timestamp in your script
-    print(f"Timestamp received from GitHub Actions: {timestamp}")
-    
-    # Check if the file exists within the folder
-    X, y = make_classification(
-                            n_samples=random.randint(0, 2000),
-                            n_features=6,
-                            n_informative=3,
-                            n_redundant=0,
-                            n_repeated=0,
-                            n_classes=2,
-                            random_state=0,
-                            shuffle=True,
-                        )
-    if os.path.exists('data'): 
-        with open('data/data.pickle', 'wb') as data:
-            pickle.dump(X, data)
-            
-        with open('data/target.pickle', 'wb') as data:
-            pickle.dump(y, data)  
-    else:
-        os.makedirs('data/')
-        with open('data/data.pickle', 'wb') as data:
-            pickle.dump(X, data)
-            
-        with open('data/target.pickle', 'wb') as data:
-            pickle.dump(y, data)  
-            
-    mlflow.set_tracking_uri("./mlruns")
-    dataset_name = "Reuters Corpus Volume"
-    current_time = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
-    experiment_name = f"{dataset_name}_{current_time}"    
-    experiment_id = mlflow.create_experiment(f"{experiment_name}")
 
-    with mlflow.start_run(experiment_id=experiment_id,
-                        run_name= f"{dataset_name}"):
-        
-        params = {
-                    "dataset_name": dataset_name,
-                    "number of datapoint": X.shape[0],
-                    "number of dimensions": X.shape[1]}
-        
-        mlflow.log_params(params)
-            
-        
-        forest = RandomForestClassifier(random_state=0)
-        forest.fit(X, y)
-        
-        y_predict = forest.predict(X)
-        mlflow.log_metrics({'Accuracy': accuracy_score(y, y_predict),
-                            'F1 Score': f1_score(y, y_predict)})
-        
-        if not os.path.exists('models/'): 
-            # then create it.
-            os.makedirs("models/")
-            
-        # After retraining the model
-        model_version = f'model_{timestamp}'  # Use a timestamp as the version
-        model_filename = f'{model_version}_dt_model.joblib'
-        dump(forest, model_filename)
-                    
+    X, y = load_data()
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model = fit_model(X_train, y_train)
+    path = save_model(model, args.timestamp)
 
+    cv_scores = cross_val_score(GradientBoostingClassifier(**MODEL_PARAMS), X_train, y_train,
+                                cv=5, scoring="roc_auc")
+    if not args.no_mlflow:
+        log_to_mlflow(args.timestamp, len(y_train), cv_scores)
+
+    print(f"Trained model version {args.timestamp} on {len(y_train)} rows of {DATASET_NAME}")
+    print(f"5-fold CV ROC-AUC: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+    print(f"Saved model to {path}")
