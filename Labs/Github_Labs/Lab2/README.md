@@ -18,10 +18,76 @@ This lab uses GitHub Actions to retrain a model automatically. On every change t
 | **Quality gate** | None: every model was saved | `quality_gate.py` blocks a model whose F1 < 0.92, ROC-AUC < 0.97 or recall < 0.88, or that scores more than 0.01 below the latest model. A failed gate fails the workflow and nothing is committed |
 | **Model registry** | Loose `.joblib` files | `models/registry.json` lists every promoted version with its params, metrics and files, and a `latest` pointer |
 | **Experiment tracking** | MLflow run named after an unrelated dataset ("Reuters Corpus Volume") | MLflow experiment `github_lab2_breast_cancer` with params and CV scores (uploaded as a workflow artifact) |
-| **Tests** | None (empty `test/` folder) | **16 pytest tests** for the data, model, metrics, quality gate and registry |
+| **Tests** | None (empty `test/` folder) | **17 pytest tests** for the data, model, metrics, quality gate and registry |
 | **Workflow** | Two workflows (on push and daily). They commit as the course author, have no write permission, and the daily one has broken paths | One workflow: tests on Python 3.10–3.12, then train → evaluate → gate → commit as `github-actions[bot]`. Runs on lab changes, pull requests (no commit) and manual runs |
 | **Code** | Scripts must run from the repo root; files written to the working directory and moved by the workflow | Paths built from each file's location, so the scripts run from any folder and write straight to `models/` and `metrics/` |
 | **Leftovers** | Broken scratch notebook (`src/test.ipynb`, Reuters data) and copies of the workflows in `workflows/` | Removed; the single workflow lives in `.github/workflows/` |
+
+---
+
+## Results
+
+Tested end to end on Oct 29, 2026, both in GitHub Actions and in a fresh local clone (clean virtual environment, installed from `requirements.txt`).
+
+### Model performance (held-out test set, 114 tumours)
+
+| Metric | Score | Quality gate minimum |
+|---|---|---|
+| Accuracy | **0.9649** | – |
+| Precision (malignant) | **1.0000** | – |
+| Recall (malignant) | **0.9048** | 0.88 |
+| F1 (malignant) | **0.9500** | 0.92 |
+| ROC-AUC | **0.9964** | 0.97 |
+| 5-fold CV ROC-AUC (training set) | **0.9904 ± 0.0114** | – |
+
+Confusion matrix:
+
+| | Predicted benign | Predicted malignant |
+|---|---|---|
+| **Actually benign (72)** | 72 | 0 |
+| **Actually malignant (42)** | 4 | 38 |
+
+The model raised **no false alarms**: every tumour it called malignant was malignant. It missed 4 of the 42 malignant tumours, which is why recall is the gated metric with the lowest minimum, and the one to improve next.
+
+These scores come from the GitHub Actions runner (Linux). On macOS the predictions and confusion matrix are identical, but ROC-AUC is 0.9957 and CV ROC-AUC 0.9912 ± 0.0102. Small floating-point differences between platforms change the probability scores slightly.
+
+### GitHub Actions runs
+
+| Run | Trigger | Tests (3.10 / 3.11 / 3.12) | Quality gate | Version committed by `github-actions[bot]` |
+|---|---|---|---|---|
+| [40955988731](https://github.com/isakshay007/MLOps/actions/runs/40955988731) | Push of the lab | 16 / 16 / 16 passed | Passed (first registered model) | `20261029211551` (\*) |
+| [40956479339](https://github.com/isakshay007/MLOps/actions/runs/40956479339) | Push of the `.gitignore` fix | 16 / 16 / 16 passed | Passed (compared with `20261029211551`) | `20261029211854` |
+| [40957613380](https://github.com/isakshay007/MLOps/actions/runs/40957613380) | Push of the float fix and `*.md` filter | 17 / 17 / 17 passed | Passed (compared with `20261029211854`) | `20261029212704` (latest) |
+
+(\*) In the first run the bot committed only the model file. The repo-wide `.gitignore` ignores `*.json`, so `registry.json` and the metrics file were left out. The fix was a `.gitignore` in this lab that lets them through, plus a workflow step that fails if any of the three files is missing from the commit. The missing files for this version were restored from the run's artifact. Since the fix, every version has its model, metrics and registry entry in the repo.
+
+All three registered versions have the same scores. The data and random seed are fixed, so retraining reproduces the same model, and the gate accepts it because it is no worse than the latest version.
+
+### Quality gate rejection test
+
+To check that the gate blocks a bad model, a deliberately weak model (Gradient Boosting with 5 trees of depth 1) was evaluated and sent through `quality_gate.py`. The test ran locally, so the "latest model" is the macOS run with ROC-AUC 0.9957:
+
+```
+Quality gate FAILED for version weak; the model is not registered:
+  - f1 0.8000 is below the minimum 0.9200
+  - f1 0.8000 dropped more than 0.01 from the latest model's 0.9500
+  - roc_auc 0.9636 is below the minimum 0.9700
+  - roc_auc 0.9636 dropped more than 0.01 from the latest model's 0.9957
+  - recall 0.6667 is below the minimum 0.8800
+  - recall 0.6667 dropped more than 0.01 from the latest model's 0.9048
+```
+
+The script exited with code 1, which fails the workflow, and `registry.json` kept its previous `latest` version.
+
+### Fresh-clone end-to-end check
+
+| Step | Result |
+|---|---|
+| `git clone` + `pip install -r requirements.txt` (Python 3.12) | Installed cleanly |
+| `pytest -v test` | 17 passed |
+| `train_model.py` → `evaluate_model.py` → `quality_gate.py`, run from the **repo root** | Model, metrics and registry entry written inside the lab folder; gate passed against the committed latest version |
+| Weak model through `quality_gate.py` | Rejected, exit code 1, registry unchanged |
+| MLflow (`mlruns/`) | Run `gb_<version>` logged in experiment `github_lab2_breast_cancer` with the model params, dataset name and CV ROC-AUC |
 
 ---
 
@@ -35,9 +101,10 @@ Lab2/
 │   ├── evaluate_model.py  # Test-set metrics -> metrics/<version>_metrics.json
 │   ├── quality_gate.py    # Checks the metrics, registers the model if it passes (new)
 │   └── registry.py        # Reads and updates models/registry.json (new)
-├── test/                  # 16 pytest tests (new)
+├── test/                  # 17 pytest tests (new)
 ├── models/                # Versioned models + registry.json (written by the workflow)
 ├── metrics/               # Metrics of each version (written by the workflow)
+├── .gitignore             # Lets registry.json and metrics/*.json past the repo-wide *.json ignore
 ├── requirements.txt       # Pinned: scikit-learn, mlflow, pytest
 └── README.md
 ```
@@ -55,7 +122,7 @@ python3 -m venv lab2_env
 source lab2_env/bin/activate
 pip install -r requirements.txt
 
-pytest -v test                                   # 16 tests
+pytest -v test                                   # 17 tests
 python src/train_model.py --timestamp 20261029120000
 python src/evaluate_model.py --timestamp 20261029120000
 python src/quality_gate.py --timestamp 20261029120000
