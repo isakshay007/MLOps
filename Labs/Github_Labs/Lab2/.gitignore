@@ -1,0 +1,4 @@
+# The repo-wide .gitignore ignores *.json, but the model registry and the metrics of each
+# version are part of this lab and are committed by the workflow
+!models/registry.json
+!metrics/*.json
