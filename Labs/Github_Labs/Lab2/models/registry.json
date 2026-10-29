@@ -1,5 +1,5 @@
 {
-    "latest": "20261029211551",
+    "latest": "20261029211854",
     "versions": [
         {
             "version": "20261029211551",
@@ -15,6 +15,28 @@
             },
             "model_file": "model_20261029211551_gb_model.joblib",
             "metrics_file": "20261029211551_metrics.json",
+            "metrics": {
+                "accuracy": 0.9649,
+                "precision": 1.0,
+                "recall": 0.9048,
+                "f1": 0.95,
+                "roc_auc": 0.9964
+            }
+        },
+        {
+            "version": "20261029211854",
+            "registered_at": "2026-10-29T21:19:01+00:00",
+            "dataset": "Breast Cancer Wisconsin (Diagnostic)",
+            "model": "GradientBoostingClassifier",
+            "params": {
+                "n_estimators": 200,
+                "learning_rate": 0.05,
+                "max_depth": 3,
+                "subsample": 0.8,
+                "random_state": 42
+            },
+            "model_file": "model_20261029211854_gb_model.joblib",
+            "metrics_file": "20261029211854_metrics.json",
             "metrics": {
                 "accuracy": 0.9649,
                 "precision": 1.0,
