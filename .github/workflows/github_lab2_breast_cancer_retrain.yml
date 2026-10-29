@@ -9,6 +9,8 @@ on:
       # The bot's own commits only touch these; don't let them count as a lab change
       - '!Labs/Github_Labs/Lab2/models/**'
       - '!Labs/Github_Labs/Lab2/metrics/**'
+      # Docs-only edits don't need a new model version
+      - '!Labs/Github_Labs/Lab2/**/*.md'
       - '.github/workflows/github_lab2_breast_cancer_retrain.yml'
   pull_request:
     branches:

@@ -42,3 +42,10 @@ def test_save_metrics_writes_json(tmp_path):
     path = save_metrics({"f1": 0.95}, "20260101000000", tmp_path)
     assert path.name == "20260101000000_metrics.json"
     assert json.loads(path.read_text()) == {"f1": 0.95}
+
+
+def test_metrics_are_plain_floats(trained_model, splits):
+    # numpy 2 returns np.float64 from sklearn scorers; the metrics file should hold plain floats
+    _, X_test, _, y_test = splits
+    metrics = evaluate_model(trained_model, X_test, y_test)
+    assert all(type(metrics[name]) is float for name in ("accuracy", "precision", "recall", "f1", "roc_auc"))

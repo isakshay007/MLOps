@@ -31,11 +31,11 @@ def evaluate_model(model, X_test, y_test):
     y_proba = model.predict_proba(X_test)[:, 1]
     return {
         "test_size": len(y_test),
-        "accuracy": round(accuracy_score(y_test, y_pred), 4),
-        "precision": round(precision_score(y_test, y_pred), 4),
-        "recall": round(recall_score(y_test, y_pred), 4),
-        "f1": round(f1_score(y_test, y_pred), 4),
-        "roc_auc": round(roc_auc_score(y_test, y_proba), 4),
+        "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
+        "precision": round(float(precision_score(y_test, y_pred)), 4),
+        "recall": round(float(recall_score(y_test, y_pred)), 4),
+        "f1": round(float(f1_score(y_test, y_pred)), 4),
+        "roc_auc": round(float(roc_auc_score(y_test, y_proba)), 4),
         # Rows are the true class, columns the prediction: [[TN, FP], [FN, TP]]
         "confusion_matrix": confusion_matrix(y_test, y_pred).tolist(),
     }
