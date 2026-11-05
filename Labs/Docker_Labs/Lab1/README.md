@@ -34,7 +34,7 @@ This lab packages a machine learning model in a Docker image. The container trai
 
 ## Results
 
-Measured on Nov 5, 2026, with the image built and run locally on Docker 29.8 (Apple Silicon).
+Measured on Nov 5, 2026: locally on Docker 29.8 (Apple Silicon), and in GitHub Actions ([run 42130651848](https://github.com/isakshay007/MLOps/actions/runs/42130651848), passed in 56 s). Both gave exactly the same metrics and prediction.
 
 ### Model performance (held-out test set, 89 patients)
 
@@ -70,6 +70,17 @@ $ docker run --rm -v "$PWD/output:/app/output" docker-lab1 predict '{"age": 59, 
 | `predict` without a mounted model | Says to run `train` first, exit code 2 |
 | User inside the container (`id`) | `uid=1000(appuser)`, not root |
 | `import pytest` in the final image | `ModuleNotFoundError` (test tools stay out of the runtime image) |
+
+### CI and registry
+
+| Step in [run 42130651848](https://github.com/isakshay007/MLOps/actions/runs/42130651848) | Result |
+|---|---|
+| Build image (test stage) | 24 passed |
+| Image size on the runner (`linux/amd64`) | 554 MB on disk, **130 MB** to download |
+| Train with `--min-r2 0.40` | RMSE 53.05, MAE 42.94, R² 0.4688 (passed) |
+| Predict for the sample patient | `210.8` |
+| Push to GHCR | `ghcr.io/isakshay007/mlops-docker-lab1:latest` and `:sha-8e549d3` |
+| Anonymous `docker pull` of `:latest`, then `train` + `predict` | Same metrics and prediction; runs as `appuser`; `source` label links to this repo |
 
 ---
 
