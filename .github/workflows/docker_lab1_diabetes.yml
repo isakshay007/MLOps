@@ -1,0 +1,79 @@
+name: Docker Lab1 - Build, Test, Train & Push
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Labs/Docker_Labs/Lab1/**'
+      # Docs-only edits don't change the image
+      - '!Labs/Docker_Labs/Lab1/**/*.md'
+      - '.github/workflows/docker_lab1_diabetes.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Labs/Docker_Labs/Lab1/**'
+      - '!Labs/Docker_Labs/Lab1/**/*.md'
+      - '.github/workflows/docker_lab1_diabetes.yml'
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/isakshay007/mlops-docker-lab1
+  # One real patient from the dataset, in original units
+  PATIENT: '{"age": 59, "sex": 2, "bmi": 32.1, "bp": 101, "s1": 157, "s2": 93.2, "s3": 38, "s4": 4, "s5": 4.8598, "s6": 87}'
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    defaults:
+      run:
+        # Explicit bash adds -o pipefail, so `docker build | tee` still fails when the build fails
+        shell: bash
+        working-directory: Labs/Docker_Labs/Lab1
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    # The Dockerfile's test stage runs pytest; a failing test fails this step
+    - name: Build image (runs the tests)
+      run: docker build --progress=plain -t docker-lab1:ci . 2>&1 | tee build.log
+
+    - name: Show image size
+      run: docker image ls docker-lab1:ci
+
+    # --user matches the runner's user so the container can write to the mounted folder
+    - name: Train in the container (fails if test R² < 0.40)
+      run: |
+        mkdir -p output
+        docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/output:/app/output" \
+          docker-lab1:ci train --min-r2 0.40
+
+    - name: Predict with the saved model
+      run: |
+        docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/output:/app/output" \
+          docker-lab1:ci predict "$PATIENT"
+
+    - name: Upload metrics and build log
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: docker-lab1-metrics
+        path: |
+          Labs/Docker_Labs/Lab1/output/metrics.json
+          Labs/Docker_Labs/Lab1/build.log
+        if-no-files-found: ignore
+
+    - name: Push image to GitHub Container Registry
+      if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      run: |
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        docker tag docker-lab1:ci "$IMAGE:latest"
+        docker tag docker-lab1:ci "$IMAGE:sha-${GITHUB_SHA::7}"
+        docker push "$IMAGE:latest"
+        docker push "$IMAGE:sha-${GITHUB_SHA::7}"
