@@ -1,338 +1,159 @@
-# Airflow lab
+# Airflow Lab 1: Penguin Clustering Pipeline
 
-- In order to install Airflow using docker you can watch our [Airflow Lab1 Tutorial Video](https://youtu.be/exFSeGUbn4Q?feature=shared)
-- For latest step-by-step instructions, check out this blog - [AirFlow Lab-1](https://www.mlwithramin.com/blog/airflow-lab1)
+[![Airflow Lab1 - Penguin Clustering DAG](https://github.com/isakshay007/MLOps/actions/workflows/airflow_lab1_penguins.yml/badge.svg)](https://github.com/isakshay007/MLOps/actions/workflows/airflow_lab1_penguins.yml)
 
-### ML Model
+Based on [Airflow Lab 1 from raminmohammadi/MLOps](https://github.com/raminmohammadi/MLOps/tree/main/Labs/Airflow_Labs/Lab_1).
 
-This script is designed for data clustering using K-Means clustering and determining the optimal number of clusters using the elbow method. It provides functionality to load data from a CSV file, perform data preprocessing, build and save a K-Means clustering model, and determine the number of clusters based on the elbow method.
+An Apache Airflow 3 pipeline that groups the **Palmer Penguins** into clusters by their body measurements, without being told the species. It checks the data and picks the number of clusters. Then it trains a **Gaussian Mixture model**, scores the clusters against the real species, and labels new penguins. Each run ends by publishing an HTML report, or failing on purpose when the clusters aren't good enough.
 
-#### Prerequisites
+![Report produced by a DAG run](assets/report.png)
 
-Before using this script, make sure you have the following libraries installed:
+---
 
-- pandas
-- scikit-learn (sklearn)
-- kneed
-- pickle
+## My modifications
 
-#### Usage
+| Area | Original lab | This version |
+|---|---|---|
+| **Dataset** | Credit-card customers (`file.csv`, 8,950 rows; 3 of its 18 columns used) | **Palmer Penguins** (`penguins.csv`, 344 penguins from 3 species and 3 islands, 4 body measurements, with missing values to clean) |
+| **Model** | K-Means | **Gaussian Mixture** in a `StandardScaler` → `GaussianMixture` pipeline. K-Means is kept as a baseline for comparison |
+| **Choosing k** | Elbow method on K-Means for k = 1–49 (49 fits) | **BIC** of the Gaussian Mixture for k = 2–10, adjustable when you trigger the run. The report shows what the elbow and silhouette would have picked |
+| **Bug: saved model** | Saved the **last** model fitted (k = 49), not the one the elbow chose | Saves the model with the chosen k |
+| **Bug: prediction** | Trained on min-max-scaled data but predicted on **raw, unscaled** `test.csv` | The scaler is part of the saved pipeline, so raw measurements are scaled the same way |
+| **Evaluation** | Printed the elbow k only | **Adjusted Rand Index** and silhouette vs the real species (never used for fitting), purity, a cluster × species table, cluster profiles, and the same scores for the K-Means baseline → `metrics.json` |
+| **Predictions** | Cluster number for 1 customer | Cluster, **likely species** and **confidence** (`predict_proba`) for 3 new penguins → `predictions.json` |
+| **Dashboard** | None | **`report.html`** per run: model-selection charts, model comparison, clusters, predictions and a pass/fail banner (screenshot above) |
+| **DAG** | 4 tasks in a straight line (`PythonOperator`) | **9 tasks** with the TaskFlow API (`@dag`/`@task`): a **data-quality gate** (columns, row count, missing values, valid ranges), **branching** (`@task.branch`) on a quality threshold, **run parameters** (`k_min`, `k_max`, `min_ari`), retries (except on bad data), tags and docs shown in the UI |
+| **Passing data between tasks** | DataFrames pickled + base64-encoded through XCom | Each run writes files to `output/<run_id>/`; tasks pass **file paths and small JSON dicts** only |
+| **Airflow setup** | No `docker-compose.yaml` in the folder; download it yourself, packages installed on every container start | **`docker-compose.yaml` included**: Airflow **3.3.2**, **LocalExecutor** (no Redis/Celery, fits in 4 GB), examples off, a **custom image** (`Dockerfile`) with pinned packages, `output/` mounted |
+| **`setup.sh`** | Deleted the committed `config/` folder on every run | Keeps `config/`, creates `output/`, builds the image and initialises Airflow |
+| **DAG file name** | `airflow.py` (can shadow the `airflow` package on the DAGs path) | `penguins_dag.py` |
+| **Tests** | None | **18 pytest tests**: each step, the data checks, JSON safety of task results, and **DAG integrity** (loads with no import errors, exact task wiring, params, retries) |
+| **CI** | None | GitHub Actions builds the image, runs the tests, runs the **whole DAG** with `airflow dags test`, checks every output file, runs it again with an impossible threshold to prove the failure branch works, and uploads the outputs |
 
-You can use this script to perform K-Means clustering on your dataset as follows:
+---
 
-```python
-# Load the data
-data = load_data()
+## The DAG
 
-# Preprocess the data
-preprocessed_data = data_preprocessing(data)
-
-# Build and save the clustering model
-sse_values = build_save_model(preprocessed_data, 'clustering_model.pkl')
-
-# Load the saved model and determine the number of clusters
-result = load_model_elbow('clustering_model.pkl', sse_values)
-print(result)
+```mermaid
+flowchart LR
+    A[validate_data] --> B[preprocess] --> C[select_k] --> D[train_model] --> E[evaluate_model]
+    E --> F[predict_new]
+    E --> G{check_quality<br/>ARI ≥ min_ari?}
+    G -- yes --> H[publish_report]
+    G -- no --> I[flag_low_quality<br/>report + fail the run]
+    F --> H
+    F --> I
 ```
 
-#### Functions
+| Task | What it does | Output |
+|---|---|---|
+| `validate_data` | Fails the run if columns are missing, there are < 300 rows, > 5% of a measurement is missing, or a value is outside a plausible range. No retries | Row count, missing values |
+| `preprocess` | Drops penguins with missing measurements | `clean.csv` |
+| `select_k` | Fits Gaussian Mixture and K-Means for every k from `k_min` to `k_max`; picks the k with the lowest BIC | BIC, SSE, silhouette per k |
+| `train_model` | Fits `StandardScaler` + `GaussianMixture(k)` | `model.joblib` |
+| `evaluate_model` | Scores the clusters against the real species, and the K-Means baseline with the same k | `metrics.json` |
+| `predict_new` | Labels the penguins in `dags/data/new_penguins.csv` | `predictions.json` |
+| `check_quality` | Branches on `ARI ≥ min_ari` | – |
+| `publish_report` | Writes the report with a green "PASSED" banner | `report.html` |
+| `flag_low_quality` | Writes the report with a red "BELOW threshold" banner, then fails the run | `report.html` |
 
-1. **load_data():**
-   - *Description:* Loads data from a CSV file, serializes it, and returns the serialized data.
-   - *Usage:*
-     ```python
-     data = load_data()
-     ```
+Run parameters, set with **Trigger DAG w/ config** in the UI or `--conf` on the CLI:
 
-2. **data_preprocessing(data)**
-   - *Description:* Deserializes data, performs data preprocessing, and returns serialized clustered data.
-   - *Usage:*
-     ```python
-     preprocessed_data = data_preprocessing(data)
-     ```
+| Param | Default | Meaning |
+|---|---|---|
+| `k_min` | 2 | Smallest number of clusters to try |
+| `k_max` | 10 | Largest number of clusters to try (max 15) |
+| `min_ari` | 0.8 | Minimum Adjusted Rand Index vs the real species for the run to pass |
 
-3. **build_save_model(data, filename)**
-   - *Description:* Builds a K-Means clustering model, saves it to a file, and returns SSE values.
-   - *Usage:*
-     ```python
-     sse_values = build_save_model(preprocessed_data, 'clustering_model.pkl')
-     ```
+---
 
-4. **load_model_elbow(filename, sse)**
-   - *Description:* Loads a saved K-Means clustering model and determines the number of clusters using the elbow method.
-   - *Usage:*
-     ```python
-     result = load_model_elbow('clustering_model.pkl', sse_values)
-     ```
-### Airflow Setup
+## Results
 
-Use Airflow to author workflows as directed acyclic graphs (DAGs) of tasks. The Airflow scheduler executes your tasks on an array of workers while following the specified dependencies.
+Tested on Nov 15, 2026, with Airflow 3.3.2 in Docker (full stack via `docker compose`, and `airflow dags test`).
 
-References
+### Model
 
--   Product - https://airflow.apache.org/
--   Documentation - https://airflow.apache.org/docs/
--   Github - https://github.com/apache/airflow
+| | Gaussian Mixture (this lab) | K-Means baseline (original lab's model) |
+|---|---|---|
+| Number of clusters picked | **3** by BIC (there are 3 species) | Elbow picks **5**; silhouette picks **2** |
+| Adjusted Rand Index vs species (k = 3) | **0.960** | 0.793 |
+| Silhouette (k = 3) | 0.455 | 0.447 |
+| Purity | **98.5%** | – |
 
-#### Installation
+| Cluster | Penguins | Adelie | Chinstrap | Gentoo | Mean bill length | Mean flipper | Mean mass |
+|---|---|---|---|---|---|---|---|
+| 0 → Adelie | 152 | **149** | 3 | 0 | 38.8 mm | 189.7 mm | 3,690 g |
+| 1 → Gentoo | 123 | 0 | 0 | **123** | 47.5 mm | 217.2 mm | 5,076 g |
+| 2 → Chinstrap | 67 | 2 | **65** | 0 | 49.0 mm | 196.5 mm | 3,759 g |
 
-Prerequisites: You should allocate at least 4GB memory for the Docker Engine (ideally 8GB).
+Only 5 of 342 penguins land in a cluster dominated by another species. The 3 new penguins were labelled Adelie, Chinstrap and Gentoo, as intended.
 
-Local
+### Pipeline
 
--   Docker Desktop Running
+| Check | Result |
+|---|---|
+| `pytest` in the Airflow image | **18 passed** |
+| `docker compose up`: Postgres, API server, scheduler, DAG processor | All **healthy**; DAG loaded with **no import errors** |
+| Triggered run on the full stack | **success**: 8 tasks succeeded, `flag_low_quality` **skipped** |
+| `airflow dags test penguin_clustering` | `state=success`; `clean.csv`, `model.joblib`, `metrics.json`, `predictions.json`, `report.html` written |
+| `airflow dags test ... --conf '{"min_ari": 0.99}'` | `flag_low_quality` ran, the report shows **BELOW threshold**, run `state=failed` with `ARI 0.9603 is below min_ari 0.99` |
+| Data-quality gate (tests) | Rejects a missing column, too few rows, a 60 kg penguin and 12% missing values |
 
-Cloud
+---
 
--   Linux VM
--   SSH Connection
--   Installed Docker Engine - [Install using the convenience script](https://docs.docker.com/engine/install/ubuntu/#install-using-the-convenience-script)
+## Folder structure
 
-#### Tutorial
-
-1. Create a new directory
-
-    ```bash
-    mkdir -p ~/app
-    cd ~/app
-    ```
-
-2. Running Airflow in Docker - [Refer](https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html#running-airflow-in-docker)
-
-    a. You can check if you have enough memory by running this command
-
-    ```bash
-    docker run --rm "debian:bullseye-slim" bash -c 'numfmt --to iec $(echo $(($(getconf _PHYS_PAGES) * $(getconf PAGE_SIZE))))'
-    ```
-
-    b. Fetch [docker-compose.yaml](https://airflow.apache.org/docs/apache-airflow/2.5.1/docker-compose.yaml)
-
-    ```bash
-    curl -LfO 'https://airflow.apache.org/docs/apache-airflow/2.5.1/docker-compose.yaml'
-    ```
-
-    c. Setting the right Airflow user
-
-    ```bash
-    mkdir -p ./dags ./logs ./plugins ./working_data
-    echo -e "AIRFLOW_UID=$(id -u)" > .env
-    ```
-
-    d. Update the following in docker-compose.yml
-
-    ```bash
-    # Donot load examples
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-
-    # Additional python package
-    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- pandas }
-
-    # Output dir
-    - ${AIRFLOW_PROJ_DIR:-.}/working_data:/opt/airflow/working_data
-
-    # Change default admin credentials
-    _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow2}
-    _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow2}
-    ```
-
-    e. Initialize the database
-
-    ```bash
-    docker compose up airflow-init
-    ```
-
-    f. Running Airflow
-
-    ```bash
-    docker compose up
-    ```
-
-    Wait until terminal outputs
-
-    `app-airflow-webserver-1  | 127.0.0.1 - - [17/Feb/2023:09:34:29 +0000] "GET /health HTTP/1.1" 200 141 "-" "curl/7.74.0"`
-
-    g. Enable port forwarding
-
-    h. Visit `localhost:8080` login with credentials set on step `2.d`
-
-3. Explore UI and add user `Security > List Users`
-
-4. Create a python script [`dags/sandbox.py`](dags/sandbox.py)
-
-    - BashOperator
-    - PythonOperator
-    - Task Dependencies
-    - Params
-    - Crontab schedules
-
-    You can have n number of scripts inside dags dir
-
-5. Stop docker containers
-
-    ```bash
-    docker compose down
-    ```
-### Airflow DAG Script
-
-This Markdown file provides a detailed explanation of the Python script that defines an Airflow Directed Acyclic Graph (DAG) for a data processing and modeling workflow.
-
-#### Script Overview
-
-The script defines an Airflow DAG named `your_python_dag` that consists of several tasks. Each task represents a specific operation in a data processing and modeling workflow. The script imports necessary libraries, sets default arguments for the DAG, creates PythonOperators for each task, defines task dependencies, and provides command-line interaction with the DAG.
-
-#### Importing Libraries
-
-```python
-# Import necessary libraries and modules
-from airflow import DAG
-from airflow.operators.python_operator import PythonOperator
-from datetime import datetime, timedelta
-from src.lab import load_data, data_preprocessing, build_save_model, load_model_elbow
-from airflow import configuration as conf
 ```
-The script starts by importing the required libraries and modules. Notable imports include the `DAG` and `PythonOperator` classes from the `airflow` package, datetime manipulation functions, and custom functions from the `src.lab` module.
-
-
-
-#### Enable pickle support for XCom, allowing data to be passed between tasks
-```python
-conf.set('core', 'enable_xcom_pickling', 'True')
-```
-
-#### Define default arguments for your DAG
-```python
-default_args = {
-    'owner': 'your_name',
-    'start_date': datetime(2023, 9, 17),
-    'retries': 0,  # Number of retries in case of task failure
-    'retry_delay': timedelta(minutes=5),  # Delay before retries
-}
-```
-Default arguments for the DAG are specified in a dictionary named default_args. These arguments include the DAG owner's name, the start date, the number of retries, and the retry delay in case of task failure.
-
-#### Create a DAG instance named 'your_python_dag' with the defined default arguments
-``` python 
-dag = DAG(
-    'your_python_dag',
-    default_args=default_args,
-    description='Your Python DAG Description',
-    schedule_interval=None,  # Set the schedule interval or use None for manual triggering
-    catchup=False,
-)
-```
-Here, the DAG object dag is created with the name 'your_python_dag' and the specified default arguments. The description provides a brief description of the DAG, and schedule_interval defines the execution schedule (in this case, it's set to None for manual triggering). catchup is set to False to prevent backfilling of missed runs.
-
-
-#### Task to load data, calls the 'load_data' Python function
-``` python 
-load_data_task = PythonOperator(
-    task_id='load_data_task',
-    python_callable=load_data,
-    dag=dag,
-)
-```
-
-#### Task to perform data preprocessing, depends on 'load_data_task'
-```python 
-data_preprocessing_task = PythonOperator(
-    task_id='data_preprocessing_task',
-    python_callable=data_preprocessing,
-    op_args=[load_data_task.output],
-    dag=dag,
-)
-```
-The 'data_preprocessing_task' depends on the 'load_data_task' and calls the data_preprocessing function, which is provided with the output of the 'load_data_task'.
-
-#### Task to build and save a model, depends on 'data_preprocessing_task'
-```python
-build_save_model_task = PythonOperator(
-    task_id='build_save_model_task',
-    python_callable=build_save_model,
-    op_args=[data_preprocessing_task.output, "model.sav"],
-    provide_context=True,
-    dag=dag,
-)
-```
-The 'build_save_model_task' depends on the 'data_preprocessing_task' and calls the build_save_model function. It also provides additional context information and arguments.
-
-#### Task to load a model using the 'load_model_elbow' function, depends on 'build_save_model_task'
-``` python
-load_model_task = PythonOperator(
-    task_id='load_model_task',
-    python_callable=load_model_elbow,
-    op_args=["model.sav", build_save_model_task.output],
-    dag=dag,
-)
-```
-The 'load_model_task' depends on the 'build_save_model_task' and calls the load_model_elbow function with specific arguments.
-
-#### Set task dependencies
-```python
-load_data_task >> data_preprocessing_task >> build_save_model_task >> load_model_task
-```
-Task dependencies are defined using the >> operator. In this case, the tasks are executed in sequence: 'load_data_task' -> 'data_preprocessing_task' -> 'build_save_model_task' -> 'load_model_task'.
-
-#### If this script is run directly, allow command-line interaction with the DAG
-```python
-if __name__ == "__main__":
-    dag.cli()
-```
-- Lastly, the script allows for command-line interaction with the DAG. When the script is run directly, the dag.cli() function is called, providing the ability to trigger and manage the DAG from the command line.
-- This script defines a comprehensive Airflow DAG for a data processing and modeling workflow, with clear task dependencies and default arguments.
-
-### Running an Apache Airflow DAG Pipeline in Docker
-
-This guide provides detailed steps to set up and run an Apache Airflow Directed Acyclic Graph (DAG) pipeline within a Docker container using Docker Compose. The pipeline is named "your_python_dag."
-
-#### Prerequisites
-
-- Docker: Make sure Docker is installed and running on your system.
-
-#### Step 1: Directory Structure
-
-Ensure your project has the following directory structure:
-
-```plaintext
-your_airflow_project/
+Lab_1/
 ├── dags/
-│   ├── airflow.py     # Your DAG script
-├── src/
-│   ├── lab.py                # Data processing and modeling functions
-├── data/                       # Directory for data (if needed)
-├── docker-compose.yaml         # Docker Compose configuration
+│   ├── penguins_dag.py      # The DAG (TaskFlow API) (replaces airflow.py)
+│   ├── src/penguins.py      # Pipeline steps as plain functions, no Airflow imports (replaces lab.py)
+│   └── data/
+│       ├── penguins.csv     # Palmer Penguins (replaces file.csv)
+│       └── new_penguins.csv # 3 unlabelled penguins to predict (replaces test.csv)
+├── tests/                   # 18 pytest tests (new)
+├── assets/report.png        # Screenshot of a run's report (new)
+├── config/airflow.cfg       # From the course (env vars in docker-compose.yaml override it)
+├── docker-compose.yaml      # Airflow 3.3.2, LocalExecutor, custom image (new)
+├── Dockerfile               # apache/airflow:3.3.2-python3.12 + requirements.txt (new)
+├── requirements.txt         # Pinned packages (new)
+├── setup.sh                 # One-time setup (rewritten)
+└── README.md
 ```
 
-#### Step 2: Docker Compose Configuration
-Create a docker-compose.yaml file in the project root directory. This file defines the services and configurations for running Airflow in a Docker container.
+`output/`, `logs/` and `plugins/` are created when you run it and are not committed. The CI workflow is at the repository root in [`.github/workflows/airflow_lab1_penguins.yml`](../../../.github/workflows/airflow_lab1_penguins.yml).
 
-#### Step 3: Start the Docker containers by running the following command
+---
 
-```plaintext
-docker compose up
+## Running the lab
+
+You need Docker with at least 4 GB of memory.
+
+```bash
+git clone https://github.com/isakshay007/MLOps.git
+cd MLOps/Labs/Airflow_Labs/Lab_1
+
+./setup.sh               # builds the image, creates the admin user (airflow / airflow)
+docker compose up -d     # starts Postgres, API server, scheduler and DAG processor
 ```
 
-Wait until you see the log message indicating that the Airflow webserver is running:
+Open http://localhost:8080 and log in with **airflow / airflow**. Open **penguin_clustering**, switch it on, and click **Trigger**; use **Trigger with config** to change the params. When the run finishes, open `output/<run_id>/report.html`.
 
-```plaintext
-app-airflow-webserver-1 | 127.0.0.1 - - [17/Feb/2023:09:34:29 +0000] "GET /health HTTP/1.1" 200 141 "-" "curl/7.74.0"
+From the command line instead:
+
+```bash
+docker compose exec airflow-scheduler airflow dags unpause penguin_clustering
+docker compose exec airflow-scheduler airflow dags trigger penguin_clustering
+docker compose exec airflow-scheduler airflow dags trigger penguin_clustering --conf '{"min_ari": 0.99}'   # see the failure branch
 ```
 
-#### Step 4: Access Airflow Web Interface
-- Open a web browser and navigate to http://localhost:8080.
+Run the tests and a whole DAG run without starting the stack:
 
-- Log in with the credentials set in the .env file or use the default credentials (username: admin, password: admin).
+```bash
+docker build -t airflow-lab1 .
+docker run --rm -v "$PWD:/lab" -w /lab -e OUTPUT_DIR=/tmp/out --entrypoint python airflow-lab1 -m pytest -v tests
+docker run --rm -v "$PWD/dags:/opt/airflow/dags" -v "$PWD/output:/opt/airflow/output" -e OUTPUT_DIR=/opt/airflow/output \
+  airflow-lab1 bash -c "airflow db migrate > /dev/null && airflow dags test penguin_clustering"
+```
 
-- Once logged in, you'll be on the Airflow web interface.
-
-#### Step 5: Trigger the DAG
-- In the Airflow web interface, navigate to the "DAGs" page.
-
-- You should see the "your_python_dag" listed.
-
-- To manually trigger the DAG, click on the "Trigger DAG" button or enable the DAG by toggling the switch to the "On" position.
-
-- Monitor the progress of the DAG in the Airflow web interface. You can view logs, task status, and task execution details.
-
-#### Step 6: Pipeline Outputs
-
-- Once the DAG completes its execution, check any output or artifacts produced by your functions and tasks. 
+Stop everything with `docker compose down` (add `-v` to also delete the database).

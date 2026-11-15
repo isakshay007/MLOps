@@ -1,18 +1,18 @@
 #!/bin/bash
+# One-time setup (safe to re-run; it resets the Airflow database):
+# writes .env with your user id, creates the folders Airflow mounts, builds the custom image
+# and initialises the database with the admin user (airflow / airflow).
 set -e
+cd "$(dirname "$0")"
 
-# Remove existing .env file if it exists
-rm -f .env
-rm -rf ./logs ./plugins ./config
+# Stop anything from a previous run and remove its database volume
+docker compose down -v --remove-orphans
 
-# Stop and remove containers, networks, and volumes
-docker compose down -v
+# Folders mounted into the containers (config/airflow.cfg is kept, unlike the original script)
+mkdir -p ./logs ./plugins ./config ./output
 
-# Create required Airflow directories
-mkdir -p ./logs ./plugins ./config
-
-# Write the current user's UID into .env
+# Files written by the containers will be owned by you
 echo "AIRFLOW_UID=$(id -u)" > .env
 
-# Run airflow CLI to show current config
-docker compose run --rm airflow-cli airflow config list
+docker compose build
+docker compose up airflow-init

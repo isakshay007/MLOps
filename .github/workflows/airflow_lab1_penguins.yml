@@ -1,0 +1,75 @@
+name: Airflow Lab1 - Penguin Clustering DAG
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Labs/Airflow_Labs/Lab_1/**'
+      # Docs-only edits don't change the pipeline
+      - '!Labs/Airflow_Labs/Lab_1/**/*.md'
+      - '!Labs/Airflow_Labs/Lab_1/assets/**'
+      - '.github/workflows/airflow_lab1_penguins.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Labs/Airflow_Labs/Lab_1/**'
+      - '!Labs/Airflow_Labs/Lab_1/**/*.md'
+      - '!Labs/Airflow_Labs/Lab_1/assets/**'
+      - '.github/workflows/airflow_lab1_penguins.yml'
+  workflow_dispatch:
+
+jobs:
+  dag:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: Labs/Airflow_Labs/Lab_1
+
+    # Containers run as --user "$(id -u):0": Airflow's image works as any user in group 0,
+    # and using the runner's uid lets them write to the mounted folders
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Build the custom Airflow image
+      run: docker build -t airflow-lab1:ci .
+
+    - name: Unit and DAG integrity tests
+      run: |
+        docker run --rm --user "$(id -u):0" -v "$PWD:/lab" -w /lab -e OUTPUT_DIR=/tmp/out \
+          --entrypoint python airflow-lab1:ci -m pytest -v -p no:cacheprovider tests
+
+    # `airflow dags test` runs every task of the DAG in order, like a scheduled run
+    - name: Run the whole DAG (expect success)
+      run: |
+        mkdir -p output && chmod 777 output
+        docker run --rm --user "$(id -u):0" -v "$PWD/dags:/opt/airflow/dags" -v "$PWD/output:/opt/airflow/output" \
+          -e OUTPUT_DIR=/opt/airflow/output -e AIRFLOW__CORE__LOAD_EXAMPLES=false airflow-lab1:ci \
+          bash -c "airflow db migrate > /dev/null && airflow dags test penguin_clustering" 2>&1 | tee dag_success.log
+        grep -q "state=success" dag_success.log
+        run=$(ls output | head -1)
+        for f in clean.csv model.joblib metrics.json predictions.json report.html; do test -s "output/$run/$f"; done
+        cat "output/$run/metrics.json"
+
+    - name: Run the DAG with an impossible ARI threshold (expect the quality branch to fail it)
+      run: |
+        docker run --rm --user "$(id -u):0" -v "$PWD/dags:/opt/airflow/dags" -v "$PWD/output:/opt/airflow/output" \
+          -e OUTPUT_DIR=/opt/airflow/output -e AIRFLOW__CORE__LOAD_EXAMPLES=false airflow-lab1:ci \
+          bash -c "airflow db migrate > /dev/null && airflow dags test penguin_clustering --conf '{\"min_ari\": 0.99}'" \
+          > dag_fail.log 2>&1 && { echo "::error::DAG should have failed"; exit 1; } || true
+        grep -q "is below min_ari 0.99" dag_fail.log
+        grep -q "state=failed" dag_fail.log
+
+    - name: Upload run outputs and logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: airflow-lab1-penguins
+        path: |
+          Labs/Airflow_Labs/Lab_1/output/
+          Labs/Airflow_Labs/Lab_1/dag_*.log
+        if-no-files-found: ignore

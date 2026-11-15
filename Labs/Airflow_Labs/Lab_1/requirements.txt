@@ -1,0 +1,9 @@
+# Already in apache/airflow:3.3.2-python3.12; pinned here so a version change is visible
+scikit-learn==1.9.1
+pandas==3.0.5
+numpy==2.5.3
+joblib==1.6.0
+# Added for this lab
+kneed==0.8.5
+matplotlib==3.11.2
+pytest==9.1.1
