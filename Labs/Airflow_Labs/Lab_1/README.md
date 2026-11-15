@@ -69,7 +69,7 @@ Run parameters, set with **Trigger DAG w/ config** in the UI or `--conf` on the 
 
 ## Results
 
-Tested on Nov 15, 2026, with Airflow 3.3.2 in Docker (full stack via `docker compose`, and `airflow dags test`).
+Tested on Nov 15, 2026, with Airflow 3.3.2 in Docker: locally (full stack via `docker compose`, and `airflow dags test`) and in GitHub Actions ([run 43744755765](https://github.com/isakshay007/MLOps/actions/runs/43744755765), passed in 1 m 46 s with the same numbers).
 
 ### Model
 
@@ -98,6 +98,7 @@ Only 5 of 342 penguins land in a cluster dominated by another species. The 3 new
 | `airflow dags test penguin_clustering` | `state=success`; `clean.csv`, `model.joblib`, `metrics.json`, `predictions.json`, `report.html` written |
 | `airflow dags test ... --conf '{"min_ari": 0.99}'` | `flag_low_quality` ran, the report shows **BELOW threshold**, run `state=failed` with `ARI 0.9603 is below min_ari 0.99` |
 | Data-quality gate (tests) | Rejects a missing column, too few rows, a 60 kg penguin and 12% missing values |
+| GitHub Actions | Tests **18 passed**; full DAG run `state=success` with all 5 output files; threshold-0.99 run failed as intended |
 
 ---
 
