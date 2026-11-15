@@ -1,3 +1,5 @@
 # Created by setup.sh / written by Airflow runs
 output/
 plugins/
+# The repo-wide .gitignore ignores docker-compose.yaml, but this lab needs it
+!docker-compose.yaml

@@ -138,7 +138,7 @@ cd MLOps/Labs/Airflow_Labs/Lab_1
 docker compose up -d     # starts Postgres, API server, scheduler and DAG processor
 ```
 
-Open http://localhost:8080 and log in with **airflow / airflow**. Open **penguin_clustering**, switch it on, and click **Trigger**; use **Trigger with config** to change the params. When the run finishes, open `output/<run_id>/report.html`.
+Open http://localhost:8080 and log in with **airflow / airflow**. If port 8080 is already in use, for example by Jenkins, start it on another port with `AIRFLOW_WEB_PORT=8081 docker compose up -d` and open http://localhost:8081. Open **penguin_clustering**, switch it on, and click **Trigger**; use **Trigger with config** to change the params. When the run finishes, open `output/<run_id>/report.html`.
 
 From the command line instead:
 
