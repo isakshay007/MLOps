@@ -34,6 +34,12 @@ An Apache Airflow 3 pipeline that groups the **Palmer Penguins** into clusters b
 
 ## The DAG
 
+A successful run in the Airflow 3.3.2 UI (Graph view): every task succeeded, and `flag_low_quality` was **skipped** because the ARI passed the threshold.
+
+![penguin_clustering DAG run in the Airflow UI](assets/dag_graph.png)
+
+The same flow as a diagram:
+
 ```mermaid
 flowchart LR
     A[validate_data] --> B[preprocess] --> C[select_k] --> D[train_model] --> E[evaluate_model]
@@ -113,7 +119,9 @@ Lab_1/
 │       ├── penguins.csv     # Palmer Penguins (replaces file.csv)
 │       └── new_penguins.csv # 3 unlabelled penguins to predict (replaces test.csv)
 ├── tests/                   # 18 pytest tests (new)
-├── assets/report.png        # Screenshot of a run's report (new)
+├── assets/
+│   ├── dag_graph.png        # Airflow UI graph of a successful run (new)
+│   └── report.png           # Screenshot of a run's report (new)
 ├── config/airflow.cfg       # From the course (env vars in docker-compose.yaml override it)
 ├── docker-compose.yaml      # Airflow 3.3.2, LocalExecutor, custom image (new)
 ├── Dockerfile               # apache/airflow:3.3.2-python3.12 + requirements.txt (new)
